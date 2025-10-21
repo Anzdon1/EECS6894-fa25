@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SRC_DIR="${SRC_DIR:-${ROOT}/benchmarks}"
 OUT_DIR="${OUT_DIR:-${ROOT}/mlir}"
-BUILD_DIR="${ROOT}/build}"
+BUILD_DIR="${ROOT}/build"
 WORKLOADS="${WORKLOADS:-addressbook mapreduce telemetry}"
 CFLAGS="${CFLAGS:--O2 -fno-discard-value-names -Xclang -disable-O0-optnone}"
 
