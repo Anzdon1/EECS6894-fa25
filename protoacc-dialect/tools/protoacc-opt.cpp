@@ -3,7 +3,7 @@
 
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Support/MlirOptMain.h"
+#include "mlir/Tools/mlir-opt/MlirOptMain.h"
 
 int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
@@ -12,5 +12,6 @@ int main(int argc, char **argv) {
 
   protoacc::registerProtoAccPasses();
 
-  return mlir::MlirOptMain(argc, argv, "ProtoAcc optimizer", registry);
+  return mlir::failed(
+      mlir::MlirOptMain(argc, argv, "ProtoAcc optimizer", registry));
 }

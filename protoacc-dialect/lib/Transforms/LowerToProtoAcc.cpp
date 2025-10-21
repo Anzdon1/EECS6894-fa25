@@ -1,7 +1,7 @@
 #include "ProtoAcc/ProtoAccOps.h"
 #include "ProtoAcc/Transforms/Passes.h"
 
-#include "mlir/Dialect/LLVMIR/LLVMOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
@@ -26,7 +26,7 @@ struct ZigZagPattern : OpRewritePattern<LLVM::XOrOp> {
       return failure();
 
     auto type = dyn_cast<IntegerType>(shl.getResult().getType());
-    if (!type || type.getWidth() != 32)
+    if (!type || !type.isSignless())
       return failure();
 
     if (ashr.getResult().getType() != shl.getResult().getType() ||
@@ -83,6 +83,7 @@ struct LowerToProtoAccPass
   }
 
   void runOnOperation() override {
+    getContext().loadDialect<protoacc::ProtoAccDialect>();
     RewritePatternSet patterns(&getContext());
     patterns.add<ZigZagPattern>(&getContext());
     if (failed(
