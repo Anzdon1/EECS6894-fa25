@@ -1,0 +1,95 @@
+Performing C++ SOURCE FILE Test CXX_SUPPORTS_WERROR_UNGUARDED_AVAILABILITY_NEW failed with the following output:
+Change Dir: /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_408c5 && [1/2] Building CXX object CMakeFiles/cmTC_408c5.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_408c5.dir/src.cxx.o 
+/usr/bin/c++ -DCXX_SUPPORTS_WERROR_UNGUARDED_AVAILABILITY_NEW  -fno-semantic-interposition -fvisibility-inlines-hidden -Werror=date-time    -Werror -Werror=unguarded-availability-new -o CMakeFiles/cmTC_408c5.dir/src.cxx.o -c /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/src.cxx
+cc1plus: error: '-Werror=unguarded-availability-new': no option '-Wunguarded-availability-new'
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+int main() { return 0; }
+Performing C++ SOURCE FILE Test CXX_SUPPORTS_COVERED_SWITCH_DEFAULT_FLAG failed with the following output:
+Change Dir: /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_98e28 && [1/2] Building CXX object CMakeFiles/cmTC_98e28.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_98e28.dir/src.cxx.o 
+/usr/bin/c++ -DCXX_SUPPORTS_COVERED_SWITCH_DEFAULT_FLAG  -fno-semantic-interposition -fvisibility-inlines-hidden -Werror=date-time -fno-lifetime-dse -Wall -Wextra -Wno-unused-parameter -Wwrite-strings -Wcast-qual -Wno-missing-field-initializers -Wimplicit-fallthrough    -Werror -Wcovered-switch-default -o CMakeFiles/cmTC_98e28.dir/src.cxx.o -c /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/src.cxx
+c++: error: unrecognized command-line option '-Wcovered-switch-default'; did you mean '-Wno-switch-default'?
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+int main() { return 0; }
+Performing C++ SOURCE FILE Test CXX_WONT_WARN_ON_FINAL_NONVIRTUALDTOR failed with the following output:
+Change Dir: /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_a741b && [1/2] Building CXX object CMakeFiles/cmTC_a741b.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_a741b.dir/src.cxx.o 
+/usr/bin/c++ -DCXX_WONT_WARN_ON_FINAL_NONVIRTUALDTOR  -fno-semantic-interposition -fvisibility-inlines-hidden -Werror=date-time -fno-lifetime-dse -Wall -Wextra -Wno-unused-parameter -Wwrite-strings -Wcast-qual -Wno-missing-field-initializers -Wimplicit-fallthrough -Wno-nonnull -Wno-class-memaccess -Wno-redundant-move -Wno-pessimizing-move -Wno-noexcept-type  -Werror=non-virtual-dtor -o CMakeFiles/cmTC_a741b.dir/src.cxx.o -c /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/src.cxx
+/users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/src.cxx:2:36: error: ‘class base’ has virtual functions and accessible non-virtual destructor [-Werror=non-virtual-dtor]
+    2 |                              class base {friend f; public: virtual void anchor();protected: ~base();};
+      |                                    ^~~~
+cc1plus: some warnings being treated as errors
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+class f {};
+                             class base {friend f; public: virtual void anchor();protected: ~base();};
+                             int main() { return 0; }
+Performing C++ SOURCE FILE Test CXX_SUPPORTS_STRING_CONVERSION_FLAG failed with the following output:
+Change Dir: /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_a1ea8 && [1/2] Building CXX object CMakeFiles/cmTC_a1ea8.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_a1ea8.dir/src.cxx.o 
+/usr/bin/c++ -DCXX_SUPPORTS_STRING_CONVERSION_FLAG  -fno-semantic-interposition -fvisibility-inlines-hidden -Werror=date-time -fno-lifetime-dse -Wall -Wextra -Wno-unused-parameter -Wwrite-strings -Wcast-qual -Wno-missing-field-initializers -Wimplicit-fallthrough -Wno-nonnull -Wno-class-memaccess -Wno-redundant-move -Wno-pessimizing-move -Wno-noexcept-type -Wdelete-non-virtual-dtor -Wsuggest-override -Wno-comment    -Werror -Wstring-conversion -o CMakeFiles/cmTC_a1ea8.dir/src.cxx.o -c /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/src.cxx
+c++: error: unrecognized command-line option '-Wstring-conversion'; did you mean '-Wsign-conversion'?
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+int main() { return 0; }
+Performing C++ SOURCE FILE Test LINKER_SUPPORTS_COLOR_DIAGNOSTICS failed with the following output:
+Change Dir: /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_216f3 && [1/2] Building CXX object CMakeFiles/cmTC_216f3.dir/src.cxx.o
+[2/2] Linking CXX executable cmTC_216f3
+FAILED: cmTC_216f3 
+: && /usr/bin/c++ -fno-semantic-interposition -fvisibility-inlines-hidden -Werror=date-time -fno-lifetime-dse -Wall -Wextra -Wno-unused-parameter -Wwrite-strings -Wcast-qual -Wno-missing-field-initializers -Wimplicit-fallthrough -Wno-nonnull -Wno-class-memaccess -Wno-redundant-move -Wno-pessimizing-move -Wno-noexcept-type -Wdelete-non-virtual-dtor -Wsuggest-override -Wno-comment -Wno-misleading-indentation -Wctad-maybe-unsupported -fdiagnostics-color -Wl,--color-diagnostics CMakeFiles/cmTC_216f3.dir/src.cxx.o -o cmTC_216f3   && :
+/usr/bin/ld: unrecognized option '--color-diagnostics'
+/usr/bin/ld: use the --help option for usage information
+collect2: error: ld returned 1 exit status
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+int main() { return 0; }
+Determining if the os_signpost_interval_begin exist failed with the following output:
+Change Dir: /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_ee760 && [1/2] Building CXX object CMakeFiles/cmTC_ee760.dir/CheckSymbolExists.cxx.o
+FAILED: CMakeFiles/cmTC_ee760.dir/CheckSymbolExists.cxx.o 
+/usr/bin/c++   -fno-semantic-interposition -fvisibility-inlines-hidden -fno-lifetime-dse -Wall -Wextra -Wno-unused-parameter -Wwrite-strings -Wcast-qual -Wno-missing-field-initializers -Wimplicit-fallthrough -Wno-nonnull -Wno-class-memaccess -Wno-redundant-move -Wno-pessimizing-move -Wno-noexcept-type -Wdelete-non-virtual-dtor -Wsuggest-override -Wno-comment -Wno-misleading-indentation -Wctad-maybe-unsupported -fdiagnostics-color -fdata-sections -o CMakeFiles/cmTC_ee760.dir/CheckSymbolExists.cxx.o -c /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/CheckSymbolExists.cxx
+/users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/CheckSymbolExists.cxx:2:10: fatal error: os/signpost.h: No such file or directory
+    2 | #include <os/signpost.h>
+      |          ^~~~~~~~~~~~~~~
+compilation terminated.
+ninja: build stopped: subcommand failed.
+
+
+File /users/handong/projects/protoacc-mlir/protoacc-dialect/build/CMakeFiles/CMakeTmp/CheckSymbolExists.cxx:
+/* */
+#include <os/signpost.h>
+
+int main(int argc, char** argv)
+{
+  (void)argv;
+#ifndef os_signpost_interval_begin
+  return ((int*)(&os_signpost_interval_begin))[argc];
+#else
+  (void)argc;
+  return 0;
+#endif
+}
