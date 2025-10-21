@@ -1,5 +1,6 @@
 include "mlir/IR/OpBase.td"
 include "mlir/IR/BuiltinTypes.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 include "ProtoAccDialect.td"
 
 def ProtoAcc_ZigZagEncodeOp : Op<ProtoAcc_Dialect, "zigzag.encode", [Pure]> {

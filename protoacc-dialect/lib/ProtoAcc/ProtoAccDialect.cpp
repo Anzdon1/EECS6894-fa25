@@ -1,20 +1,16 @@
-#include "mlir/IR/Dialect.h"
-#include "mlir/IR/Builders.h"
+#include "ProtoAcc/ProtoAccDialect.h"
+#include "ProtoAcc/ProtoAccOps.h"
+
+#include "mlir/IR/DialectImplementation.h"
 
 using namespace mlir;
+using namespace protoacc;
 
-namespace protoacc {
-class ProtoAccDialect : public Dialect {
-public:
-  explicit ProtoAccDialect(MLIRContext *ctx)
-      : Dialect(getDialectNamespace(), ctx, TypeID::get<ProtoAccDialect>()) {
-    addOperations<
+void ProtoAccDialect::initialize() {
+  addOperations<
 #define GET_OP_LIST
 #include "ProtoAcc/ProtoAccOps.cpp.inc"
-        >();
-  }
-  static StringRef getDialectNamespace() { return "protoacc"; }
-};
-} // namespace protoacc
+      >();
+}
 
 #include "ProtoAcc/ProtoAccDialect.cpp.inc"
