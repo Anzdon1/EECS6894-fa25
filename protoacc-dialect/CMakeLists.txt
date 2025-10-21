@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ProtoAcc LANGUAGES CXX)
+project(ProtoAcc LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE Release)
@@ -40,10 +40,31 @@ add_mlir_library(ProtoAcc
 
 add_mlir_library(ProtoAccTransforms
   lib/Transforms/LowerToProtoAcc.cpp
+  DEPENDS ProtoAccTableGen
   LINK_LIBS PUBLIC
     ProtoAcc
     MLIRIR
     MLIRLLVMDialect
+    MLIRPass
     MLIRRewrite
     MLIRTransforms
+)
+
+add_executable(protoacc-opt
+  tools/protoacc-opt.cpp
+)
+
+set_target_properties(protoacc-opt PROPERTIES OUTPUT_NAME "protoacc-opt")
+
+target_link_libraries(protoacc-opt
+  PRIVATE
+    ProtoAccTransforms
+    ProtoAcc
+    MLIRDLTIDialect
+    MLIRIR
+    MLIRParser
+    MLIRPass
+    MLIRSupport
+    MLIRTransforms
+    MLIRLLVMDialect
 )
