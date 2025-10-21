@@ -26,7 +26,7 @@ struct ZigZagPattern : OpRewritePattern<LLVM::XOrOp> {
       return failure();
 
     auto type = dyn_cast<IntegerType>(shl.getResult().getType());
-    if (!type || type.getWidth() != 32)
+    if (!type || !type.isSignless())
       return failure();
 
     if (ashr.getResult().getType() != shl.getResult().getType() ||
