@@ -1,1 +1,4 @@
-{"memory_bandwidth_gbps": 41.308186639053474}
+{
+  "memory_bandwidth_gbps": 41.308186639053474,
+  "compute_peak_gops": 250.0
+}
