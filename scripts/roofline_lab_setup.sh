@@ -41,7 +41,8 @@ source env.sh
 # quick sanity
 command -v spike >/dev/null
 command -v riscv64-unknown-elf-gcc >/dev/null
-command -v pk >/dev/null || true
+command -v pk >/dev/null
+command -v jq >/dev/null
 
 cd "$ROOT"
 
@@ -186,8 +187,14 @@ int main(int argc, char** argv) {
 C
 
 # build for RISC-V (lp64, integer ops only; no FPU dependency)
+FREQ_HZ_DEFINE="${ROOFLINE_FREQ_HZ:-1000000000}"
+if [[ ! "$FREQ_HZ_DEFINE" =~ ^[0-9]+$ ]]; then
+  echo "ROOFLINE_FREQ_HZ must be an integer number of hertz (got '$FREQ_HZ_DEFINE')." >&2
+  exit 1
+fi
+echo "[INFO] Building RISC-V roofline benchmark with FREQ_HZ=${FREQ_HZ_DEFINE}"
 riscv64-unknown-elf-gcc -O3 -static -march=rv64gc -mabi=lp64 -mcmodel=medany \
-  -DFREQ_HZ=1000000000ULL \
+  -DFREQ_HZ=${FREQ_HZ_DEFINE}ULL \
   src/bench_roofline.c -o bin/bench_roofline.riscv
 
 # --- 8) multi-run driver using Spike+pk -> results/raw_runs.csv ---------------
