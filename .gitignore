@@ -1,2 +1,17 @@
 benchmarks/
 protobuf/
+!artifact/protoacc/results/*.png
+!artifact/protoacc/results/*.csv
+!artifact/protoacc/results/*.json
+/build/
+/results/
+/workloads/
+/pipeline/
+/toolchain/
+/chipyard-roofline/
+/compile_commands.json
+*.bak
+# 允许提交 artifact/protoacc/results 成果
+!artifact/protoacc/results/*.png
+!artifact/protoacc/results/*.csv
+!artifact/protoacc/ceilings.json
