@@ -1,0 +1,19 @@
+========== MLIR SAFE-LINK PIPELINE ==========
+Source:   benchmark.cc
+Protobuf: benchmark.pb.cc (linked later, not imported into MLIR)
+Output:   benchmark_mlir_exec
+Log:      build.log
+==============================================
+[2025-10-28 23:05:52] ⚙️  Skipping benchmark.ll (exists)
+[2025-10-28 23:05:52] ⚙️  Skipping benchmark.mlir (exists)
+[2025-10-28 23:05:52] ⚙️  Skipping benchmark_opt.mlir (exists)
+[2025-10-28 23:05:52] ⚙️  Skipping benchmark_final.ll (exists)
+[2025-10-28 23:05:52] ⚙️  Skipping benchmark_mlir_exec (exists)
+[2025-10-28 23:05:52] ✅ SAFE-LINK PIPELINE COMPLETE
+Generated files:
+  benchmark.ll         - LLVM IR (main only)
+  benchmark.mlir       - Imported MLIR
+  benchmark_opt.mlir   - Lowered MLIR
+  benchmark_final.ll   - Final LLVM IR
+  benchmark_mlir_exec             - Executable (linked with protobuf)
+Check build.log for details.

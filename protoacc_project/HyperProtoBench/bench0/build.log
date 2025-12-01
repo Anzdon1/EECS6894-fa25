@@ -1,0 +1,17 @@
+========== MLIR OPENMP PIPELINE ==========
+Source:   benchmark.cc
+Protobuf: benchmark.pb.cc (linked later, not imported into MLIR)
+Output:   benchmark_mlir_exec
+Threads:  48
+Log:      build.log
+==========================================
+[2025-11-03 21:57:43] ⚙️  Skipping benchmark.ll (exists)
+[2025-11-03 21:57:43] ⚙️  Skipping benchmark.mlir (exists)
+[2025-11-03 21:57:43] ⚙️  Skipping benchmark_opt.mlir (exists)
+[2025-11-03 21:57:43] ⚙️  Skipping benchmark_final.ll (exists)
+[2025-11-03 21:57:43] ▶ clang++ benchmark_final.ll benchmark.pb.cc -O2 -std=c++17 -fopenmp -march=native -ffast-math -L/usr/lib/x86_64-linux-gnu -o benchmark_mlir_exec -lprotobuf -lpthread
+warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+1 warning generated.
+[2025-11-03 21:57:51] ✅ Done in 8287 ms
+
+[2025-11-03 21:57:51] ✅ OPENMP PIPELINE COMPLETE (OMP_NUM_THREADS=48)

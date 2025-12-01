@@ -1,0 +1,10 @@
+========== MLIR Compilation Pipeline ==========
+Source:   /bench3/benchmark.cc
+Protobuf: <none>
+Output:   benchmark_mlir_exec
+Log:      build.log
+===============================================
+
+[2025-10-28 17:32:44] ▶ clang++ -O2 -emit-llvm -S /bench3/benchmark.cc -o benchmark.ll
+clang++: error: no such file or directory: '/bench3/benchmark.cc'
+clang++: error: no input files
