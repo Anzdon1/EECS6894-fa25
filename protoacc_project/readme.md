@@ -1,4 +1,7 @@
+
+```shell
 // protoc
+
 sudo apt update
 sudo apt install protobuf-compiler -y
 sudo apt install -y libprotobuf-dev autoconf automake libtool device-tree-compiler texinfo pip git bison flex build-essential libssl-dev bc 
@@ -9,7 +12,7 @@ sudo apt install -y \
     git curl zip unzip tar \
     libedit-dev libncurses5-dev libxml2-dev zlib1g-dev \
     libffi-dev libssl-dev libtinfo-dev
-    
+
 // llvm & mlir compile
 git clone https://github.com/llvm/llvm-project.git
 // 18.0.0
@@ -57,3 +60,5 @@ sudo ninja install protoacc-opt
 // 在HyperProtoBench中运行没有protoacc-opt和有的benchmark
 pip install -r requirements.txt 
 python3 run_all.py
+
+```
