@@ -2,6 +2,8 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
+
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
 #include "mlir/InitAllDialects.h"
@@ -23,6 +25,10 @@ int main(int argc, char ** argv) {
   
   registry.insert<mlir::LLVM::LLVMDialect>();
   registry.insert<mlir::DLTIDialect>();
+  registry.insert<mlir::arith::ArithDialect>();
+
+  registry.insert<mlir::vector::VectorDialect>();
+
 
   // 注册 Dialect
   registry.insert<protoacc::ProtoAccDialect, func::FuncDialect, arith::ArithDialect>();

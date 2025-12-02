@@ -126,6 +126,12 @@ def DecodeVarintOp : ProtoAccOp<"decode_varint", [Pure]> {
     "`->` type($value) `,` type($newPtr)";
 
   // todo: builders
+  let builders = [
+    OpBuilder<(ins "mlir::Value":$ptr, "mlir::Value":$ctx), [{
+      odsState.addOperands({ptr, ctx});
+      odsState.addTypes({odsBuilder.getI64Type(), ptr.getType()});
+    }]>
+  ];
 }
 
 

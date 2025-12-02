@@ -50,19 +50,75 @@ struct MatchVarintPattern : public OpRewritePattern<LLVM::CallOp> {
     if (!isVarintCall)
       return failure();
 
-    // Require at least 2 operands: ptr, ctx
-    if (op.getNumOperands() < 2)
+    // Expect a single struct result (ptr, int) so we can substitute
+    // protoacc.decode_varint's two results.
+    if (op->getNumResults() != 1)
       return failure();
 
-    Location loc = op.getLoc();
+    auto structTy =
+        dyn_cast<LLVM::LLVMStructType>(op.getResult().getType());
+    if (!structTy || structTy.getBody().size() != 2)
+      return failure();
+
+    auto ptrTy = dyn_cast<LLVM::LLVMPointerType>(structTy.getBody()[0]);
+    auto intTy = dyn_cast<IntegerType>(structTy.getBody()[1]);
+    if (!ptrTy || !intTy)
+      return failure();
+
+    // The first operand is the input pointer. Use a pointer operand as ctx if
+    // available; otherwise, fall back to the pointer itself (ctx is unused in
+    // lowering today).
+    if (op.getNumOperands() < 1)
+      return failure();
     Value ptr = op.getOperand(0);
-    Value ctx = op.getOperand(1);
+    Value ctx = ptr;
+    for (Value candidate : op.getOperands().drop_front()) {
+      if (isa<LLVM::LLVMPointerType>(candidate.getType())) {
+        ctx = candidate;
+        break;
+      }
+    }
+
+    // Only rewrite if the call result is decomposed via extractvalue ops.
+    SmallVector<LLVM::ExtractValueOp> extracts;
+    for (Operation *user : op.getResult().getUsers())
+    {
+        if (auto ev = dyn_cast<LLVM::ExtractValueOp>(user))
+        {
+            auto pos = ev.getPosition();
+            if (pos.size() == 1 && (pos[0] == 0 || pos[0] == 1))
+            {
+                extracts.push_back(ev);
+                continue;
+            }
+        }
+        return failure();
+    }
+
+    Location loc = op.getLoc();
 
     // Create ProtoAcc dialect op
     auto newOp = rewriter.create<protoacc::DecodeVarintOp>(loc, ptr, ctx);
 
-    // Replace original call
-    op.replaceAllUsesWith(newOp.getResults());
+    // Replace extractvalue uses with the appropriate results.
+    for (auto ev : extracts) {
+      rewriter.setInsertionPoint(ev);
+      auto pos = ev.getPosition();
+      Value replacement;
+      if (pos[0] == 0)
+        replacement = newOp.getNewPtr();
+      else
+        replacement = newOp.getValue();
+
+      // Narrow to the expected integer size if needed.
+      if (replacement.getType() != ev.getType()) {
+        replacement = rewriter.create<LLVM::TruncOp>(
+            ev.getLoc(), ev.getType(), replacement);
+      }
+
+      rewriter.replaceOp(ev, replacement);
+    }
+
     rewriter.eraseOp(op);
 
     return success();

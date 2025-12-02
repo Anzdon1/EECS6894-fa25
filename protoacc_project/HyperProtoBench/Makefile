@@ -1,4 +1,4 @@
-LLVM 	 = ~/EECS6894-fa25/protoacc_project/install
+LLVM 	 = ~/protoacc_project/install
 PROTOC   = /usr/bin/protoc
 CLANG    = $(LLVM)/bin/clang
 MLIR_OPT = $(LLVM)/bin/mlir-opt
@@ -65,7 +65,7 @@ $(PB_OPT_MLIR): $(PB_MLIR)
 		-o $@
 
 # 5. Export MLIR → LLVM IR
-$(PB_FINAL_LL): $(PB_MLIR)
+$(PB_FINAL_LL): $(PB_OPT_MLIR)
 	@echo " ------------- 5. Export MLIR → LLVM IR ------------- "
 	$(MLIR_TRANSLATE) --mlir-to-llvmir $< -o $@
 
@@ -78,10 +78,10 @@ $(OUT): $(PB_FINAL_LL) $(SRC) $(INC)
 
 
 # 4.5 Apply ProtoAcc BitPack optimization
-$(PB_MLIR_PROTOACC): $(PB_MLIR)
+$(PB_MLIR_PROTOACC): $(PB_OPT_MLIR)
 	@echo " ------------- 4.5. Apply ProtoAcc BitPack optimization ------------- "
 	$(PROTOACC_OPT) $< \
-		--protoacc-bitpack -o $@
+		--convert-to-protoacc --lower-protoacc-to-vector -o $@
 
 # 5. ProtoAcc export MLIR → LLVM IR
 $(PB_FINAL_LL_PROTOACC): $(PB_MLIR_PROTOACC)

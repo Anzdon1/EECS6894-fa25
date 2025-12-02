@@ -6,6 +6,10 @@ target_link_libraries(protoacc-opt
   MLIRFuncDialect   # 对应 #include "mlir/Dialect/Func/IR/FuncOps.h"
   MLIRTransforms    # 对应 #include "mlir/Transforms/Passes.h"
   ProtoAccTransforms
+
+  MLIRArithDialect
+  MLIRVectorDialect
+  MLIRLLVMDialect
   
   # MLIRLLVMToLLVMIRTranslation         # 对应 registerLLVMDialectTranslation
   # MLIRInitAllDialects                 # 对应 registerAllDialects

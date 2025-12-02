@@ -32,7 +32,12 @@ def LowerProtoAccToVector : Pass<"lower-protoacc-to-vector"> {
   let summary = "Lower ProtoAcc ops to vectorized implementations";
 
   let constructor = "createLowerProtoAccToVectorPass()";
-  let dependentDialects = ["mlir::vector::VectorDialect", "mlir::arith::ArithDialect", "mlir::LLVM::LLVMDialect", "protoacc::ProtoAccDialect"];
+  let dependentDialects = [
+    "mlir::arith::ArithDialect",
+    "mlir::vector::VectorDialect",
+    "mlir::LLVM::LLVMDialect",
+    "protoacc::ProtoAccDialect"
+  ];
 }
 
 
