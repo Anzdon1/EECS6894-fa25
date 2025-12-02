@@ -10,73 +10,109 @@
 using namespace protoacc;
 using namespace mlir;
 
+
 namespace {
 
-struct DecodeVarintOpLowering : public OpRewritePattern<DecodeVarintOp> {
+/// --------------------------------------------------------------------------
+/// Pattern: Lower protoacc.decode_varint → vector ops
+/// --------------------------------------------------------------------------
+struct DecodeVarintOpLowering : public OpRewritePattern<protoacc::DecodeVarintOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(DecodeVarintOp op,
+  LogicalResult matchAndRewrite(protoacc::DecodeVarintOp op,
                                 PatternRewriter &rewriter) const override {
-
     Location loc = op.getLoc();
     Value ptr = op.getPtr();
     Value ctx = op.getCtx();
 
-    auto i8 = rewriter.getIntegerType(8);
-    auto i32 = rewriter.getIntegerType(32);
+    constexpr int kWidth = 16;
 
-    VectorType vec16Ty = VectorType::get({16}, i8);
-    VectorType vec5Ty = VectorType::get({5}, i8);
-    VectorType vec5i32Ty = VectorType::get({5}, i32);
+    // vector<16xi8>
+    auto vecTy = VectorType::get({kWidth}, rewriter.getIntegerType(8));
 
-    Value c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    // Load 16 bytes: %vec = vector.load %ptr
+    Value vec = rewriter.create<vector::LoadOp>(loc, vecTy, ptr);
 
-    // VEC LOAD
-    Value vec = rewriter.create<vector::LoadOp>(loc, vec16Ty, ptr, ValueRange{c0});
+    // Step1: broadcast(0x80)
+    auto c80 = rewriter.create<arith::ConstantOp>(loc,
+                    rewriter.getI8IntegerAttr(0x80));
+    Value splat80 =
+        rewriter.create<vector::BroadcastOp>(loc, vecTy, c80);
 
-    // MASK >= 128
-    auto th = rewriter.create<arith::ConstantIntOp>(loc, 127, i8);
-    Value mask = rewriter.create<vector::CmpIOp>(
-        loc, vector::CmpIPredicate::ugt, vec,
-        rewriter.create<vector::BroadcastOp>(loc, vec16Ty, th));
+    // Step2: compare >= 0x80  → continuation mask
+    Value mask = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::uge, vec, splat80);
 
-    // first_non_msb
-    Value len = rewriter.create<vector::FirstFalseOp>(loc, mask);
+    // Step3: find first false in mask (manual implementation)
+    // 3.1 cast i1 vector -> i32 vector
+    auto vecI32Ty = VectorType::get({kWidth}, rewriter.getI32Type());
+    Value maskExt = rewriter.create<arith::ExtUIOp>(loc, vecI32Ty, mask);
 
-    // extract first 5 bytes
-    Value slice = rewriter.create<vector::ExtractStridedSliceOp>(
-        loc, vec5Ty, vec, ArrayRef<int64_t>{0}, ArrayRef<int64_t>{5}, ArrayRef<int64_t>{1});
+    // 3.2 build index vector [0..kWidth-1]
+    SmallVector<int32_t> seq;
+    for (int i = 0; i < kWidth; i++)
+      seq.push_back(i);
 
-    // cast to i32
-    Value slice32 = rewriter.create<arith::ExtUIOp>(loc, vec5i32Ty, slice);
+    auto seqAttr =
+        DenseIntElementsAttr::get(vecI32Ty, llvm::ArrayRef(seq));
+    Value indexVec = rewriter.create<arith::ConstantOp>(loc, seqAttr);
 
-    // mask 0x7f
-    Value mask7f = rewriter.create<arith::ConstantOp>(
-        loc, DenseElementsAttr::get(vec5i32Ty, {127,127,127,127,127}));
-    Value masked = rewriter.create<arith::AndIOp>(loc, slice32, mask7f);
+    // create 0-splat
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getI32IntegerAttr(0));
+    Value zeroVec = rewriter.create<vector::BroadcastOp>(loc, vecI32Ty, zero);
 
-    // shifts
-    Value shifts = rewriter.create<arith::ConstantOp>(
-        loc, DenseElementsAttr::get(vec5i32Ty, {0,7,14,21,28}));
-    Value shifted = rewriter.create<arith::ShLIOp>(loc, masked, shifts);
+    // isFalse = (maskExt == 0)
+    Value isFalse = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, maskExt, zeroVec);
 
-    // reduction OR
-    Value result = rewriter.create<vector::ReductionOp>(
-        loc, i32, rewriter.getStringAttr("or"), shifted);
+    // select false-index or huge
+    auto huge = rewriter.getI32IntegerAttr(999999);
+    Value hugeC = rewriter.create<arith::ConstantOp>(loc, huge);
+    Value hugeVec =
+        rewriter.create<vector::BroadcastOp>(loc, vecI32Ty, hugeC);
 
-    // new ptr = ptr + len
-    auto i64Ty = rewriter.getIntegerType(64);
-    Value len64 = rewriter.create<arith::IndexCastOp>(loc, i64Ty, len);
-    Value newPtr =
-        rewriter.create<LLVM::GEPOp>(loc, ptr.getType(), ptr, ValueRange{len64});
+    Value candidate = rewriter.create<arith::SelectOp>(
+        loc, isFalse, indexVec, hugeVec);
 
-    rewriter.replaceOp(op, {result, newPtr});
+    // reduce(min) to get first false index
+    Value firstFalse = rewriter.create<vector::ReductionOp>(
+        loc, arith::AtomicRMWKind::minu, candidate);
+
+    // Step4: varint value = extract byte0
+    Value b0 = rewriter.create<vector::ExtractOp>(loc, vec, 0);
+    Value val = rewriter.create<arith::ExtUIOp>(
+        loc, rewriter.getI32Type(), b0);
+
+    // Step5: newPtr = ptr + (firstFalse+1)
+    auto one = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getI32IntegerAttr(1));
+    Value byteCount = rewriter.create<arith::AddIOp>(loc, firstFalse, one);
+
+    Value byteCount64 = rewriter.create<arith::ExtUIOp>(
+        loc, rewriter.getI64Type(), byteCount);
+
+    Value newPtr = rewriter.create<arith::AddIOp>(
+        loc, ptr, byteCount64);
+
+    // replace op
+    rewriter.replaceOp(op, {val, newPtr});
     return success();
   }
 };
 
+
+/// --------------------------------------------------------------------------
+/// Pass
+/// --------------------------------------------------------------------------
 struct LowerProtoAccToVectorPass
-  : protoacc::impl::LowerProtoAccToVectorBase<LowerProtoAccToVectorPass> {
+    : protoacc::impl::LowerProtoAccToVectorBase<LowerProtoAccToVectorPass> {
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<mlir::arith::ArithDialect>();
+    registry.insert<mlir::vector::VectorDialect>();
+    registry.insert<protoacc::ProtoAccDialect>();
+  }
 
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
@@ -84,12 +120,15 @@ struct LowerProtoAccToVectorPass
 
     patterns.add<DecodeVarintOpLowering>(ctx);
 
-    (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+    if (failed(mlir::applyPatternsAndFoldGreedily(
+            getOperation(), std::move(patterns))))
+      signalPassFailure();
   }
 };
 
 } // namespace
 
+/// Pass factory
 std::unique_ptr<mlir::Pass> protoacc::createLowerProtoAccToVectorPass() {
   return std::make_unique<LowerProtoAccToVectorPass>();
 }
