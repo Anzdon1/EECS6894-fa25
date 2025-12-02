@@ -203,10 +203,6 @@ Proot = np.minimum(pi, Ispace * beta)
 plt.figure(figsize=(9, 7))
 plt.loglog(Ispace, Proot, 'k--', label="Roofline")
 
-def darken(color, factor=0.6):
-    r, g, b = to_rgb(color)
-    return (r*factor, g*factor, b*factor)
-
 cmap = plt.get_cmap("tab10")
 bench_colors = {}
 
@@ -231,7 +227,7 @@ legend_labels = []
 for bench in bench_dirs:
     legend_handles.append(plt.Line2D([0], [0], marker='o', linestyle='', color=bench_colors[bench]))
     legend_labels.append(f"{bench} normal")
-    legend_handles.append(plt.Line2D([0], [0], marker='^', linestyle='', color=darken(bench_colors[bench])))
+    legend_handles.append(plt.Line2D([0], [0], marker='^', linestyle='', color=bench_colors[bench]))
     legend_labels.append(f"{bench} protoacc")
 
 plt.legend(legend_handles, legend_labels, fontsize=8)
