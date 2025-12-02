@@ -1,4 +1,5 @@
 
++ 环境
 ```shell
 // protoc
 
@@ -46,7 +47,11 @@ sudo likwid-accessD start
 sudo modprobe msr
 sudo modprobe cpuid
 
-// protoacc-opt 编译
+```
+
++ protoacc-opt 编译：进入protoacc目录
+
+```shell
 mkdir build
 cd build
 sudo rm -rf CMakeCache.txt CMakeFiles
@@ -56,9 +61,14 @@ cmake -G Ninja .. \
 	
 sudo ninja -j$(nproc)
 sudo ninja install protoacc-opt
+```
 
++ 评估效果：进入HyperProtoBench目录
+
+```shell
 // 在HyperProtoBench中运行没有protoacc-opt和有的benchmark
 pip install -r requirements.txt 
 python3 run_all.py
-
 ```
+
++ `run_all.py`会自动在每个子目录下执行`make`和`make protoacc`，如果修改了protoacc-opt想要重新测试的话，可以直接在HyperProtoBench目录or在单个子目录下面`make clean`然后再执行`run_all.py`（前者是清除所有子目录下的文件，后者是单个）
