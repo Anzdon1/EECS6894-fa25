@@ -3,6 +3,7 @@ import os, subprocess, csv, re, json, time, sys
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import to_rgb
+import re
 
 # ============ 参数 ============
 
@@ -10,7 +11,7 @@ DRAW_ONLY = ("--draw-only" in sys.argv)
 RUN_TIME = 10
 
 ts = time.strftime("%Y%m%d_%H%M%S")
-LOG_FILE = f"run_log_{ts}.log"
+LOG_FILE = f"run_all_{ts}.log"
 
 def log(msg):
     print(msg)
@@ -22,14 +23,8 @@ log(f"DRAW_ONLY = {DRAW_ONLY}")
 
 # ============ 命令执行，屏蔽所有 likwid ============
 
-def run_cmd(cmd, cwd=None, bench_log=None):
-    """执行命令，并记录 stdout、stderr。
-       所有 likwid 命令不打印到屏幕，也不打印 CMD，只写 bench_log。
-    """
-    is_likwid = cmd.strip().startswith("likwid") or "likwid" in cmd
-
-    # 非 likwid 命令才记录 CMD
-    if not is_likwid:
+def run_cmd(cmd, cwd=None, can_log=True):
+    if can_log:
         log(f"[CMD] {cmd} (cwd={cwd})")
 
     out = subprocess.run(
@@ -40,21 +35,17 @@ def run_cmd(cmd, cwd=None, bench_log=None):
     # stdout
     if out.stdout:
         for line in out.stdout.splitlines():
-            if not is_likwid:  # likwid 不打印到屏幕
+            if can_log:
                 log("  [stdout] " + line)
-            if bench_log:
-                bench_log.write("  [stdout] " + line + "\n")
 
     # stderr 始终打印
     if out.stderr:
         for line in out.stderr.splitlines():
-            if not is_likwid:
+            if can_log:
                 log("  [stderr] " + line)
-            if bench_log:
-                bench_log.write("  [stderr] " + line + "\n")
 
     if out.returncode != 0:
-        if not is_likwid:
+        if can_log:
             log(f"  [ERROR] return code {out.returncode}")
 
     return out.stdout
@@ -72,6 +63,7 @@ def parse_value(pattern, text):
 LIMIT_FILE = "roofline_limits.json"
 
 if DRAW_ONLY and os.path.exists(LIMIT_FILE):
+# if os.path.exists(LIMIT_FILE):
     log("Loading cached roofline_limits.json ...")
     with open(LIMIT_FILE) as f:
         data = json.load(f)
@@ -82,8 +74,8 @@ else:
 
     log("Measuring platform with likwid-bench ...")
 
-    pi_output = run_cmd("sudo likwid-bench -t peakflops -w S0:1GB:1")
-    beta_output = run_cmd("sudo likwid-bench -t stream -w S0:1GB:1")
+    pi_output = run_cmd("sudo likwid-bench -t peakflops -w S0:1GB:1", can_log=False)
+    beta_output = run_cmd("sudo likwid-bench -t stream -w S0:1GB:1", can_log=False)
 
     pi_val = parse_value(r"MFlops/s:\s*([0-9\.]+)", pi_output)
     beta_val = parse_value(r"MByte/s:\s*([0-9\.]+)", beta_output)
@@ -130,24 +122,25 @@ else:
         log(f"===== PROCESS {bench} =====")
 
         bp = os.path.abspath(bench)
-        bench_log_path = os.path.join(bp, "bench_log.log")
-        bench_log = open(bench_log_path, "a")
-        bench_log.write(f"==== bench log at {ts} ====\n")
 
         # ===== normal =====
         log(f"[{bench}] make normal")
-        run_cmd("make", cwd=bp, bench_log=bench_log)
+        run_cmd("make", cwd=bp)
 
         runs = []
         for i in range(RUN_TIME):
-            bench_log.write(f"--- Run normal {i} ---\n")
+            log(f"--- Run normal {i} ---")
 
-            perf_f = run_cmd("sudo likwid-perfctr -C 0 -g FLOPS_DP ./benchmark_mlir_exec", cwd=bp, bench_log=bench_log)
-            perf_m = run_cmd("sudo likwid-perfctr -C 0 -g MEM ./benchmark_mlir_exec", cwd=bp, bench_log=bench_log)
+            perf_f = run_cmd("sudo likwid-perfctr -C 0 -g FLOPS_DP ./benchmark_mlir_exec", cwd=bp, can_log=False)
+            perf_m = run_cmd("sudo likwid-perfctr -C 0 -g MEM ./benchmark_mlir_exec", cwd=bp, can_log=False)
 
-            T = parse_value(r"Runtime \(RDTSC\) \[s\]\s*\|\s*([0-9\.]+)", perf_f)
+            # T = parse_value(r"Runtime \(RDTSC\) \[s\]\s*\|\s*([0-9\.]+)", perf_f)
             F = parse_value(r"DP \[MFLOP/s\]\s*\|\s*([0-9\.]+)", perf_f)
             B = parse_value(r"Memory bandwidth \[MBytes/s\]\s*\|\s*([0-9\.]+)", perf_m)
+
+            output = run_cmd("./benchmark_mlir_exec", cwd=bp, can_log=False)
+            search = re.search(r"(\d+)\s+ns per iter", output)
+            T = int(search.group(1))*1e-9
 
 
             if T and F and B:
@@ -163,19 +156,22 @@ else:
 
         # ===== protoacc =====
         log(f"[{bench}] make protoacc")
-        run_cmd("make protoacc", cwd=bp, bench_log=bench_log)
+        run_cmd("make protoacc", cwd=bp)
 
         runs = []
         for i in range(RUN_TIME):
-            bench_log.write(f"--- Run protoacc {i} ---\n")
+            log(f"--- Run protoacc {i} ---")
 
-            perf_f = run_cmd("sudo likwid-perfctr -C 0 -g FLOPS_DP ./benchmark_mlir_exec_protoacc", cwd=bp, bench_log=bench_log)
-            perf_m = run_cmd("sudo likwid-perfctr -C 0 -g MEM ./benchmark_mlir_exec_protoacc", cwd=bp, bench_log=bench_log)
+            perf_f = run_cmd("sudo likwid-perfctr -C 0 -g FLOPS_DP ./benchmark_mlir_exec_protoacc", cwd=bp, can_log=False)
+            perf_m = run_cmd("sudo likwid-perfctr -C 0 -g MEM ./benchmark_mlir_exec_protoacc", cwd=bp, can_log=False)
 
-            T = parse_value(r"Runtime \(RDTSC\) \[s\]\s*\|\s*([0-9\.]+)", perf_f)
+            # T = parse_value(r"Runtime \(RDTSC\) \[s\]\s*\|\s*([0-9\.]+)", perf_f)
             F = parse_value(r"DP \[MFLOP/s\]\s*\|\s*([0-9\.]+)", perf_f)
             B = parse_value(r"Memory bandwidth \[MBytes/s\]\s*\|\s*([0-9\.]+)", perf_m)
 
+            output = run_cmd("./benchmark_mlir_exec_protoacc", cwd=bp, can_log=False)
+            search = re.search(r"(\d+)\s+ns per iter", output)
+            T = int(search.group(1))*1e-9
 
             if T and F and B:
                 P = F * 1e6
@@ -188,7 +184,6 @@ else:
             W, Q, T, I, P = np.mean(np.array(runs), axis=0)
             results.append([bench, "protoacc", W, Q, T, I, P])
 
-        bench_log.close()
 
     # ============ 写 CSV ============
 

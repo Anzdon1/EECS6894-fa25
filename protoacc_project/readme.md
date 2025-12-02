@@ -71,4 +71,6 @@ pip install -r requirements.txt
 python3 run_all.py
 ```
 
++ 生成的roofline图见HyperProtoBench下的`roofline_compare.png`
+
 + `run_all.py`会自动在每个子目录下执行`make`和`make protoacc`，如果修改了protoacc-opt想要重新测试的话，可以直接在HyperProtoBench目录or在单个子目录下面`make clean`然后再执行`run_all.py`（前者是清除所有子目录下的文件，后者是单个）
