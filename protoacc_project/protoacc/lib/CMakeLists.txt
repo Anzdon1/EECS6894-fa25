@@ -1,2 +1,5 @@
-add_mlir_library(ProtoAcc protoacc.cpp DEPENDS MLIRProtoAccIncGen)
+add_mlir_library(ProtoAcc 
+    protoacc.cpp 
+    DEPENDS 
+    MLIRProtoAccIncGen)
 add_subdirectory(Transforms)

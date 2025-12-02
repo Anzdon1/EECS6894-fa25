@@ -12,4 +12,5 @@ add_mlir_library(
   MLIRArithToLLVM
   MLIRLLVMDialect
   MLIRDLTIDialect
+  MLIRVectorDialect
 )

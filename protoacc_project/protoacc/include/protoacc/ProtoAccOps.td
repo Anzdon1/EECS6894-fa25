@@ -109,29 +109,24 @@ def CallOp : ProtoAccOp<"call"> {
   }];
 }
 
-def DecodeVarintOp : ProtoAccOp<"decode_varint"> {
-  let summary = "Decode one protobuf varint using vectorized logic";
+def DecodeVarintOp : ProtoAccOp<"decode_varint", [Pure]> {
+  let summary = "decode protobuf varint (ptr, ctx) -> (value, newPtr)";
 
-  let arguments = (ins
-      LLVM_AnyPointer:$ptr,
-      LLVM_AnyPointer:$ctx
-  );
+  // 输入：两个指针
+  let arguments = (ins LLVM_AnyPointer:$ptr,
+                       LLVM_AnyPointer:$ctx);
 
-  let results = (outs
-      I32:$value,
-      LLVM_AnyPointer:$newPtr
-  );
+  // 输出：i64 + 一个指针（同 ptr 类型）
+  let results = (outs I64:$value,
+                      LLVM_AnyPointer:$newPtr);
 
-  let assemblyFormat = [{
-      $ptr `,` $ctx attr-dict `:` type($ptr) `,` type($ctx)
-      `->` type($value) `,` type($newPtr)
-  }];
+  // Assembly format
+  let assemblyFormat =
+    "$ptr `,` $ctx attr-dict `:` type($ptr) `,` type($ctx) "
+    "`->` type($value) `,` type($newPtr)";
 
-  let builders = [
-    OpBuilder<(ins "::mlir::Value":$ptr, "::mlir::Value":$ctx)>
-  ];
+  // todo: builders
 }
-
 
 
 #endif

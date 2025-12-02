@@ -2,6 +2,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #define GEN_PASS_DEF_LOWERPROTOACCTOVECTOR
 #include "protoacc/ProtoAccDialect.h"
 #include "protoacc/ProtoAccOps.h"
@@ -10,125 +11,170 @@
 using namespace protoacc;
 using namespace mlir;
 
+namespace
+{
 
-namespace {
+    /// --------------------------------------------------------------------------
+    /// Pattern: Lower protoacc.decode_varint → vector ops
+    /// --------------------------------------------------------------------------
+    struct DecodeVarintOpLowering : public OpRewritePattern<protoacc::DecodeVarintOp>
+    {
+        using OpRewritePattern::OpRewritePattern;
 
-/// --------------------------------------------------------------------------
-/// Pattern: Lower protoacc.decode_varint → vector ops
-/// --------------------------------------------------------------------------
-struct DecodeVarintOpLowering : public OpRewritePattern<protoacc::DecodeVarintOp> {
-  using OpRewritePattern::OpRewritePattern;
+        LogicalResult matchAndRewrite(protoacc::DecodeVarintOp op,
+                                      PatternRewriter &rewriter) const override
+        {
+            Location loc = op.getLoc();
 
-  LogicalResult matchAndRewrite(protoacc::DecodeVarintOp op,
-                                PatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value ptr = op.getPtr();
-    Value ctx = op.getCtx();
+            Value ptr = op.getPtr();
+            Value ctx = op.getCtx();
 
-    constexpr int kWidth = 16;
+            LLVM::LLVMPointerType i8PtrTy =
+                LLVM::LLVMPointerType::get(IntegerType::get(rewriter.getContext(), 8));
+            LLVM::LLVMPointerType i64PtrTy =
+                LLVM::LLVMPointerType::get(IntegerType::get(rewriter.getContext(), 64));
 
-    // vector<16xi8>
-    auto vecTy = VectorType::get({kWidth}, rewriter.getIntegerType(8));
+            // ============================================================
+            // Step 1: 将指针转为 i8*，用于逐字节加载
+            // ============================================================
+            Value basePtr = ptr;
 
-    // Load 16 bytes: %vec = vector.load %ptr
-    Value vec = rewriter.create<vector::LoadOp>(loc, vecTy, ptr);
+            // vector<16xi8> 类型
+            auto vecTy = VectorType::get({16}, rewriter.getI8Type());
 
-    // Step1: broadcast(0x80)
-    auto c80 = rewriter.create<arith::ConstantOp>(loc,
-                    rewriter.getI8IntegerAttr(0x80));
-    Value splat80 =
-        rewriter.create<vector::BroadcastOp>(loc, vecTy, c80);
+            // ============================================================
+            // Step 2: 生成 16 字节的 load
+            // %vec = llvm.load <vector<16xi8>>
+            // ============================================================
+            Value vec = rewriter.create<LLVM::LoadOp>(loc, vecTy, basePtr);
 
-    // Step2: compare >= 0x80  → continuation mask
-    Value mask = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::uge, vec, splat80);
+            // ============================================================
+            // Step 3: 比较每个字节 & 0x80
+            // mask = (vec & 0x80)
+            // ============================================================
+            Value const80 = rewriter.create<arith::ConstantIntOp>(loc, 0x80, 8);
+            auto splat80 = rewriter.create<vector::BroadcastOp>(loc, vecTy, const80);
 
-    // Step3: find first false in mask (manual implementation)
-    // 3.1 cast i1 vector -> i32 vector
-    auto vecI32Ty = VectorType::get({kWidth}, rewriter.getI32Type());
-    Value maskExt = rewriter.create<arith::ExtUIOp>(loc, vecI32Ty, mask);
+            Value masked = rewriter.create<arith::AndIOp>(loc, vec, splat80);
 
-    // 3.2 build index vector [0..kWidth-1]
-    SmallVector<int32_t> seq;
-    for (int i = 0; i < kWidth; i++)
-      seq.push_back(i);
+            // ============================================================
+            // Step 4: 查找第一个 masked == 0 的位置
+            // 我们使用 (mask != 0 ? huge : index)
+            // 然后取最小值作为 first_zero_pos
+            // ============================================================
+            auto hugeVal = rewriter.create<arith::ConstantIntOp>(loc, 999, 64);
 
-    auto seqAttr =
-        DenseIntElementsAttr::get(vecI32Ty, llvm::ArrayRef(seq));
-    Value indexVec = rewriter.create<arith::ConstantOp>(loc, seqAttr);
+            // 构造 index = vector<16xi64> = [0..15]
+            SmallVector<Attribute> indexAttrs;
+            for (int i = 0; i < 16; i++)
+                indexAttrs.push_back(rewriter.getI64IntegerAttr(i));
 
-    // create 0-splat
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getI32IntegerAttr(0));
-    Value zeroVec = rewriter.create<vector::BroadcastOp>(loc, vecI32Ty, zero);
+            auto indexVec = rewriter.create<arith::ConstantOp>(
+                loc,
+                VectorType::get({16}, rewriter.getI64Type()),
+                DenseElementsAttr::get(
+                    VectorType::get({16}, rewriter.getI64Type()),
+                    indexAttrs));
 
-    // isFalse = (maskExt == 0)
-    Value isFalse = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::eq, maskExt, zeroVec);
+            // 将 masked : vector<16xi8> 转为 vector<16xi64>
+            // extend to i64
+            auto mask64 = rewriter.create<arith::ExtUIOp>(
+                loc,
+                VectorType::get({16}, rewriter.getI64Type()),
+                masked);
 
-    // select false-index or huge
-    auto huge = rewriter.getI32IntegerAttr(999999);
-    Value hugeC = rewriter.create<arith::ConstantOp>(loc, huge);
-    Value hugeVec =
-        rewriter.create<vector::BroadcastOp>(loc, vecI32Ty, hugeC);
+            // cmp = (mask64 != 0)
+            Value zero64 = rewriter.create<arith::ConstantIntOp>(loc, 0, 64);
+            auto zeroVec = rewriter.create<vector::BroadcastOp>(
+                loc, VectorType::get({16}, rewriter.getI64Type()), zero64);
 
-    Value candidate = rewriter.create<arith::SelectOp>(
-        loc, isFalse, indexVec, hugeVec);
+            auto cmp = rewriter.create<arith::CmpIOp>(
+                loc,
+                arith::CmpIPredicate::ne,
+                mask64,
+                zeroVec);
 
-    // reduce(min) to get first false index
-    Value firstFalse = rewriter.create<vector::ReductionOp>(
-        loc, arith::AtomicRMWKind::minu, candidate);
+            // candidate = select(cmp, hugeVal, index)
+            auto hugeVec = rewriter.create<vector::BroadcastOp>(
+                loc, VectorType::get({16}, rewriter.getI64Type()), hugeVal);
 
-    // Step4: varint value = extract byte0
-    Value b0 = rewriter.create<vector::ExtractOp>(loc, vec, 0);
-    Value val = rewriter.create<arith::ExtUIOp>(
-        loc, rewriter.getI32Type(), b0);
+            Value candidate =
+                rewriter.create<arith::SelectOp>(loc, cmp, hugeVec, indexVec);
 
-    // Step5: newPtr = ptr + (firstFalse+1)
-    auto one = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getI32IntegerAttr(1));
-    Value byteCount = rewriter.create<arith::AddIOp>(loc, firstFalse, one);
+            // ============================================================
+            // Step 5: 使用 vector.reduction minu candidate 得到最小 index
+            // ReductionOp 构造函数：
+            //   destTy, CombiningKindAttr, vector, acc?, fastmath?
+            // ============================================================
 
-    Value byteCount64 = rewriter.create<arith::ExtUIOp>(
-        loc, rewriter.getI64Type(), byteCount);
+            // 构造 CombiningKindAttr(MINUI)
+            auto kindAttr = vector::CombiningKindAttr::get(
+                rewriter.getContext(),
+                vector::CombiningKind::MINUI // unsigned min
+            );
 
-    Value newPtr = rewriter.create<arith::AddIOp>(
-        loc, ptr, byteCount64);
+            // reduction result 类型为 i64
+            auto i64Ty = rewriter.getI64Type();
 
-    // replace op
-    rewriter.replaceOp(op, {val, newPtr});
-    return success();
-  }
-};
+            Value reduced = rewriter.create<vector::ReductionOp>(
+                loc,
+                i64Ty,                     // result scalar type
+                kindAttr,                  // combining kind
+                candidate,                 // vector operand
+                Value(),                   // no accumulator
+                arith::FastMathFlagsAttr() // no fastmath
+            );
 
+            // ============================================================
+            // Step 6: reconstruct varint using mask, vec
+            // 这里只做结构演示：真实构造需继续拼 varint 逻辑
+            // ============================================================
 
-/// --------------------------------------------------------------------------
-/// Pass
-/// --------------------------------------------------------------------------
-struct LowerProtoAccToVectorPass
-    : protoacc::impl::LowerProtoAccToVectorBase<LowerProtoAccToVectorPass> {
+            // ptr + (reduced + 1)
+            Value one = rewriter.create<arith::ConstantIntOp>(loc, 1, 64);
+            Value newPtrOffset = rewriter.create<arith::AddIOp>(loc, reduced, one);
+            Value newPtr = rewriter.create<LLVM::GEPOp>(
+                loc, ptr.getType(), ptr, newPtrOffset);
 
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<mlir::arith::ArithDialect>();
-    registry.insert<mlir::vector::VectorDialect>();
-    registry.insert<protoacc::ProtoAccDialect>();
-  }
+            // 伪造 varint = reduced（只是 placeholder）
+            Value varint = reduced;
 
-  void runOnOperation() override {
-    MLIRContext *ctx = &getContext();
-    RewritePatternSet patterns(ctx);
+            rewriter.replaceOp(op, {varint, newPtr});
+            return success();
+        }
+    };
 
-    patterns.add<DecodeVarintOpLowering>(ctx);
+    /// --------------------------------------------------------------------------
+    /// Pass
+    /// --------------------------------------------------------------------------
+    struct LowerProtoAccToVectorPass
+        : protoacc::impl::LowerProtoAccToVectorBase<LowerProtoAccToVectorPass>
+    {
 
-    if (failed(mlir::applyPatternsAndFoldGreedily(
-            getOperation(), std::move(patterns))))
-      signalPassFailure();
-  }
-};
+        void getDependentDialects(DialectRegistry &registry) const override
+        {
+            registry.insert<mlir::arith::ArithDialect>();
+            registry.insert<mlir::vector::VectorDialect>();
+            registry.insert<protoacc::ProtoAccDialect>();
+        }
+
+        void runOnOperation() override
+        {
+            MLIRContext *ctx = &getContext();
+            RewritePatternSet patterns(ctx);
+
+            patterns.add<DecodeVarintOpLowering>(ctx);
+
+            if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                                    std::move(patterns))))
+                signalPassFailure();
+        }
+    };
 
 } // namespace
 
 /// Pass factory
-std::unique_ptr<mlir::Pass> protoacc::createLowerProtoAccToVectorPass() {
-  return std::make_unique<LowerProtoAccToVectorPass>();
+std::unique_ptr<mlir::Pass> protoacc::createLowerProtoAccToVectorPass()
+{
+    return std::make_unique<LowerProtoAccToVectorPass>();
 }
