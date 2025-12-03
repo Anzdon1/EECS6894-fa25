@@ -1,240 +1,187 @@
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
 #define GEN_PASS_DEF_LOWERPROTOACCTOVECTOR
 #include "protoacc/ProtoAccDialect.h"
 #include "protoacc/ProtoAccOps.h"
 #include "protoacc/ProtoAccPasses.h"
 
-using namespace protoacc;
 using namespace mlir;
+using namespace mlir::LLVM;
+using namespace protoacc;
 
-namespace
-{
+namespace {
 
-    /// --------------------------------------------------------------------------
-    /// Pattern: Lower protoacc.decode_varint → vector ops
-    /// --------------------------------------------------------------------------
-    struct DecodeVarintOpLowering : public OpRewritePattern<protoacc::DecodeVarintOp>
-    {
-        using OpRewritePattern::OpRewritePattern;
+/// Lower protoacc.decode_varint to plain LLVM integer ops.
+///
+/// Signature:
+///   %val, %next = protoacc.decode_varint %ptr : (!llvm.ptr<i8>) -> (i64, !llvm.ptr<i8>)
+///
+/// Strategy:
+///   - Cast ptr (i8*) to i64*
+///   - Load 8 bytes as one i64
+///   - Unroll 8 bytes, accumulate 7-bit payloads until MSB == 0
+///   - Compute number of consumed bytes and new pointer
+///   - Return (value, newPtr)
+struct DecodeVarintOpLowering : public OpRewritePattern<protoacc::DecodeVarintOp> {
+  using OpRewritePattern::OpRewritePattern;
 
-        LogicalResult matchAndRewrite(protoacc::DecodeVarintOp op,
-                                      PatternRewriter &rewriter) const override
-        {
-            Location loc = op.getLoc();
+  LogicalResult matchAndRewrite(protoacc::DecodeVarintOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    MLIRContext *ctx = rewriter.getContext();
 
-            Value ptr = op.getPtr();
-            Value ctx = op.getCtx();
+    // Use builtin integer types (compatible with your LLVM dialect version).
+    Type llvmI64Ty = rewriter.getI64Type();
+    Type llvmI8Ty  = rewriter.getI8Type();
 
-            LLVM::LLVMPointerType i8PtrTy =
-                LLVM::LLVMPointerType::get(rewriter.getContext());
-            LLVM::LLVMPointerType i64PtrTy =
-                LLVM::LLVMPointerType::get(rewriter.getContext());
+    // First operand is expected to be !llvm.ptr<i8>
+    if (op->getNumOperands() < 1)
+      return failure();
 
+    Value ptr = op->getOperand(0);
+    Type ptrTy = ptr.getType();
 
-            // ============================================================
-            // Step 1: 将指针转为 i8*，用于逐字节加载
-            // ============================================================
-            Value basePtr = ptr;
+    auto i8PtrTy = dyn_cast<LLVMPointerType>(ptrTy);
+    if (!i8PtrTy)
+      return failure();
 
-            // vector<16xi8> 类型
-            auto vecTy = VectorType::get({16}, rewriter.getI8Type());
+    // Pointer to i64 (i64*)
+    auto i64PtrTy = LLVMPointerType::get(ctx);
 
-            // ============================================================
-            // Step 2: 生成 16 字节的 load
-            // %vec = llvm.load <vector<16xi8>>
-            // ============================================================
-            Value vec = rewriter.create<LLVM::LoadOp>(loc, vecTy, basePtr);
+    // 1) Cast i8* to i64* and load 8 bytes at once.
+    //    Note: we assume alignment is sufficient for this cast.
+    Value castPtr = rewriter.create<LLVM::BitcastOp>(loc, i64PtrTy, ptr);
+    Value chunk   = rewriter.create<LLVM::LoadOp>(loc, llvmI64Ty, castPtr);
 
-            // ============================================================
-            // Step 3: 比较每个字节 & 0x80
-            // mask = (vec & 0x80)
-            // ============================================================
-            Value const80 = rewriter.create<LLVM::ConstantOp>(
-                loc, rewriter.getI8Type(), rewriter.getIntegerAttr(rewriter.getI8Type(), 0x80));
-            auto splat80 = rewriter.create<vector::BroadcastOp>(loc, vecTy, const80);
-
-            Value masked = rewriter.create<LLVM::AndOp>(loc, vec, splat80);
-
-            // ============================================================
-            // Step 4: 查找第一个 masked == 0 的位置
-            // 我们使用 (mask != 0 ? huge : index)
-            // 然后取最小值作为 first_zero_pos
-            // ============================================================
-            auto hugeVal = rewriter.create<LLVM::ConstantOp>(
-                loc, rewriter.getI64Type(), rewriter.getIntegerAttr(rewriter.getI64Type(), 999));
-
-            // 构造 index = vector<16xi64> = [0..15]
-            SmallVector<Attribute> indexAttrs;
-            for (int i = 0; i < 16; i++)
-                indexAttrs.push_back(rewriter.getI64IntegerAttr(i));
-
-            auto vec64Ty = VectorType::get({16}, rewriter.getI64Type());
-            auto indexVec = rewriter.create<LLVM::ConstantOp>(
-                loc,
-                vec64Ty,
-                DenseElementsAttr::get(vec64Ty, indexAttrs));
-
-            // 将 masked : vector<16xi8> 转为 vector<16xi64>
-            // extend to i64
-            auto mask64 = rewriter.create<LLVM::ZExtOp>(
-                loc,
-                VectorType::get({16}, rewriter.getI64Type()),
-                masked);
-
-            // cmp = (mask64 != 0)
-            Value zero64 = rewriter.create<LLVM::ConstantOp>(
-                loc, rewriter.getI64Type(), rewriter.getIntegerAttr(rewriter.getI64Type(), 0));
-            auto zeroVec = rewriter.create<vector::BroadcastOp>(
-                loc, VectorType::get({16}, rewriter.getI64Type()), zero64);
-
-            auto cmp = rewriter.create<LLVM::ICmpOp>(
-                loc,
-                LLVM::ICmpPredicate::ne,
-                mask64,
-                zeroVec);
-
-            // candidate = select(cmp, hugeVal, index)
-            auto hugeVec = rewriter.create<vector::BroadcastOp>(
-                loc, VectorType::get({16}, rewriter.getI64Type()), hugeVal);
-
-            Value candidate =
-                rewriter.create<LLVM::SelectOp>(loc, cmp, hugeVec, indexVec);
-
-            // ============================================================
-            // Step 5: 使用 vector.reduction minu candidate 得到最小 index
-            // ReductionOp 构造函数：
-            //   destTy, CombiningKindAttr, vector, acc?, fastmath?
-            // ============================================================
-
-            // 构造 CombiningKindAttr(MINUI)
-            auto kindAttr = vector::CombiningKindAttr::get(
-                rewriter.getContext(),
-                vector::CombiningKind::MINUI // unsigned min
-            );
-
-            // reduction result 类型为 i64
-            auto i64Ty = rewriter.getI64Type();
-
-            Value reduced = rewriter.create<vector::ReductionOp>(
-                loc,
-                i64Ty,                     // result scalar type
-                kindAttr,                  // combining kind
-                candidate,                 // vector operand
-                Value(),                   // no accumulator
-                arith::FastMathFlagsAttr() // no fastmath
-            );
-
-            // ============================================================
-            // Step 6: Real varint decode using vector ops
-            // ============================================================
-
-            // 6.1 常量 0x7f 用于去掉 continuation bit
-            Value const7F = rewriter.create<LLVM::ConstantOp>(
-                loc, rewriter.getI8Type(), rewriter.getIntegerAttr(rewriter.getI8Type(), 0x7f));
-            auto splat7F = rewriter.create<vector::BroadcastOp>(
-                loc, vecTy, const7F);
-
-            // vec_low = vec & 0x7f
-            Value vecLow = rewriter.create<LLVM::AndOp>(loc, vec, splat7F);
-
-            // 6.2 zero extend to i64
-            Value vecLow64 = rewriter.create<LLVM::ZExtOp>(loc, vec64Ty, vecLow);
-
-            // 6.3 构造 shift offset [0,7,14,21,...,105]
-            SmallVector<Attribute> shiftAttrs;
-            for (int i = 0; i < 16; i++)
-                shiftAttrs.push_back(
-                    rewriter.getI64IntegerAttr(i * 7));
-
-            Value shiftVec = rewriter.create<LLVM::ConstantOp>(
-                loc, vec64Ty,
-                DenseElementsAttr::get(vec64Ty, shiftAttrs));
-
-            // 6.4 左移 (vecLow64 << shiftVec)
-            Value shifted = rewriter.create<LLVM::ShlOp>(
-                loc, vecLow64, shiftVec);
-
-            // 6.5 mask 掉超过 first_zero_pos 的 lane：
-            //    keep = (indexVec <= first_zero_pos ? 1 : 0)
-            auto reducedVec = rewriter.create<vector::BroadcastOp>(
-                loc, vec64Ty, reduced);
-            auto cmpIndex = rewriter.create<LLVM::ICmpOp>(
-                loc, LLVM::ICmpPredicate::ule, indexVec, reducedVec);
-
-            // keep 作为选择器（i1 vector）
-            // select(keep, shifted, 0)
-            auto zeroI64 = rewriter.create<LLVM::ConstantOp>(
-                loc, rewriter.getI64Type(), rewriter.getIntegerAttr(rewriter.getI64Type(), 0));
-            auto zeroVec64 = rewriter.create<vector::BroadcastOp>(
-                loc, vec64Ty, zeroI64);
-
-            Value maskedShifted =
-                rewriter.create<LLVM::SelectOp>(loc, cmpIndex, shifted, zeroVec64);
-
-            // 6.6 vector.reduction add 得到 varint 值
-            auto addKind = vector::CombiningKindAttr::get(
-                rewriter.getContext(), vector::CombiningKind::ADD);
-
-            Value varint =
-                rewriter.create<vector::ReductionOp>(
-                    loc,
-                    rewriter.getI64Type(), // scalar result
-                    addKind,               // ADD
-                    maskedShifted,
-                    Value(),               // no accumulator
-                    arith::FastMathFlagsAttr());
-
-            // 6.7 计算 newPtr = ptr + first_zero_pos + 1
-            Value one64 = rewriter.create<LLVM::ConstantOp>(
-                loc, rewriter.getI64Type(), rewriter.getIntegerAttr(rewriter.getI64Type(), 1));
-            Value newPtrOff = rewriter.create<LLVM::AddOp>(loc, reduced, one64);
-
-            SmallVector<LLVM::GEPArg> gepArgs{newPtrOff};
-            Value newPtr = rewriter.create<LLVM::GEPOp>(
-                loc, ptr.getType(), ptr.getType(), ptr, gepArgs);
-
-            // 最终替换 op
-            rewriter.replaceOp(op, {varint, newPtr});
-            return success();
-
-        }
+    auto makeConst = [&](uint64_t v) -> Value {
+      return rewriter.create<LLVM::ConstantOp>(
+          loc, llvmI64Ty, rewriter.getIntegerAttr(llvmI64Ty, v));
     };
 
-    /// --------------------------------------------------------------------------
-    /// Pass
-    /// --------------------------------------------------------------------------
-    struct LowerProtoAccToVectorPass
-        : protoacc::impl::LowerProtoAccToVectorBase<LowerProtoAccToVectorPass>
-    {
+    Value zero   = makeConst(0);
+    Value maskFF = makeConst(0xff);
+    Value mask7F = makeConst(0x7f);
+    Value mask80 = makeConst(0x80);
 
-        void getDependentDialects(DialectRegistry &registry) const override
-        {
-            registry.insert<mlir::arith::ArithDialect>();
-            registry.insert<mlir::vector::VectorDialect>();
-            registry.insert<LLVM::LLVMDialect>();
-            registry.insert<protoacc::ProtoAccDialect>();
-        }
+    // Accumulated result and current shift amount (in bits).
+    Value result = zero;
+    Value shift  = zero;
 
-        void runOnOperation() override
-        {
-            MLIRContext *ctx = &getContext();
-            RewritePatternSet patterns(ctx);
+    // Number of bytes consumed (in range [1, 8]), 0 means "not set yet".
+    Value consumedBytes = nullptr;
 
-            patterns.add<DecodeVarintOpLowering>(ctx);
+    // 2) Unroll up to 8 bytes.
+    for (int i = 0; i < 8; ++i) {
+      // Extract byte i: (chunk >> (8*i)) & 0xff
+      Value shiftAmt8 = makeConst(8ull * static_cast<uint64_t>(i));
+      Value bShifted  = rewriter.create<LLVM::LShrOp>(loc, chunk, shiftAmt8);
+      Value byteVal   = rewriter.create<LLVM::AndOp>(loc, bShifted, maskFF);
 
-            if (failed(applyPatternsAndFoldGreedily(getOperation(),
-                                                    std::move(patterns))))
-                signalPassFailure();
-        }
-    };
+      // payload = byteVal & 0x7f
+      Value payload = rewriter.create<LLVM::AndOp>(loc, byteVal, mask7F);
+
+      // payload << shift
+      Value payloadShifted =
+          rewriter.create<LLVM::ShlOp>(loc, payload, shift);
+
+      // result |= payloadShifted
+      result =
+          rewriter.create<LLVM::OrOp>(loc, result, payloadShifted);
+
+      // continuation bit: byteVal & 0x80
+      Value contBit = rewriter.create<LLVM::AndOp>(loc, byteVal, mask80);
+      Value isZero  = rewriter.create<LLVM::ICmpOp>(
+          loc, LLVM::ICmpPredicate::eq, contBit, zero);
+
+      // thisConsumed = i + 1
+      Value thisConsumed = makeConst(static_cast<uint64_t>(i + 1));
+
+      // If this is the first byte where MSB == 0, record i+1.
+      if (!consumedBytes) {
+        consumedBytes = rewriter.create<LLVM::SelectOp>(
+            loc, isZero, thisConsumed, zero);
+      } else {
+        // Keep previous non-zero value; otherwise overwrite with thisConsumed.
+        Value isPrevZero = rewriter.create<LLVM::ICmpOp>(
+            loc, LLVM::ICmpPredicate::eq, consumedBytes, zero);
+        Value merged = rewriter.create<LLVM::SelectOp>(
+            loc, isPrevZero, thisConsumed, consumedBytes);
+        consumedBytes = merged;
+      }
+
+      // shift += 7 for next loop
+      Value seven = makeConst(7);
+      shift = rewriter.create<LLVM::AddOp>(loc, shift, seven);
+    }
+
+    // Fallback if we never saw a terminating byte: assume 8 bytes consumed.
+    Value eight = makeConst(8);
+    Value isConsZero = rewriter.create<LLVM::ICmpOp>(
+        loc, LLVM::ICmpPredicate::eq, consumedBytes, zero);
+    consumedBytes = rewriter.create<LLVM::SelectOp>(
+        loc, isConsZero, eight, consumedBytes);
+
+    // 3) Compute new pointer: ptr + consumedBytes (i8*).
+    //    GEPOp in this MLIR version needs resultType + elementType.
+    Value newPtr = rewriter.create<LLVM::GEPOp>(
+        loc,
+        i8PtrTy,   // result pointer type (!llvm.ptr<i8>)
+        llvmI8Ty,  // element type (i8)
+        ptr,
+        ValueRange{consumedBytes});
+
+    // 4) Replace protoacc.decode_varint with (result, newPtr).
+    rewriter.replaceOp(op, ValueRange{result, newPtr});
+    return success();
+  }
+};
+
+/// Pass: remove lifetime intrinsics and apply DecodeVarintOpLowering.
+struct LowerProtoAccToVectorPass
+    : protoacc::impl::LowerProtoAccToVectorBase<LowerProtoAccToVectorPass> {
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<LLVMDialect>();
+    registry.insert<protoacc::ProtoAccDialect>();
+  }
+
+  void runOnOperation() override {
+    Operation *root = getOperation();
+    MLIRContext *ctx = &getContext();
+    RewritePatternSet patterns(ctx);
+
+    // ------------------------------------------------------------------
+    // 0) Remove all llvm.lifetime.start / llvm.lifetime.end intrinsics.
+    //    These can cause the LLVM verifier to fail after lowering.
+    // ------------------------------------------------------------------
+    SmallVector<Operation *> toErase;
+    root->walk([&](LLVM::LifetimeStartOp op) {
+      toErase.push_back(op.getOperation());
+    });
+    root->walk([&](LLVM::LifetimeEndOp op) {
+      toErase.push_back(op.getOperation());
+    });
+    for (Operation *op : toErase)
+      op->erase();
+
+    // ------------------------------------------------------------------
+    // 1) Apply DecodeVarintOpLowering patterns.
+    // ------------------------------------------------------------------
+    patterns.add<DecodeVarintOpLowering>(ctx);
+
+    if (failed(applyPatternsAndFoldGreedily(root, std::move(patterns))))
+      signalPassFailure();
+  }
+};
 
 } // namespace
 
 /// Pass factory
-std::unique_ptr<mlir::Pass> protoacc::createLowerProtoAccToVectorPass()
-{
-    return std::make_unique<LowerProtoAccToVectorPass>();
+std::unique_ptr<mlir::Pass> protoacc::createLowerProtoAccToVectorPass() {
+  return std::make_unique<LowerProtoAccToVectorPass>();
 }
