@@ -1,4 +1,4 @@
-LLVM 	 = ~/protoacc_project/install
+LLVM   = /users/www233/protoacc_project/install
 PROTOC   = /usr/bin/protoc
 CLANG    = $(LLVM)/bin/clang
 MLIR_OPT = $(LLVM)/bin/mlir-opt
@@ -77,11 +77,22 @@ $(OUT): $(PB_FINAL_LL) $(SRC) $(INC)
 	@echo "DONE. Built $(OUT)"
 
 
-# 4.5 Apply ProtoAcc BitPack optimization
+# 3.5 Apply ProtoAcc optimization
 $(PB_MLIR_PROTOACC): $(PB_OPT_MLIR)
-	@echo " ------------- 4.5. Apply ProtoAcc BitPack optimization ------------- "
+	@echo " ------------- 3.5. Apply ProtoAcc BitPack optimization ------------- "
 	$(PROTOACC_OPT) $< \
 		--convert-to-protoacc --lower-protoacc-to-vector -o $@
+
+# 4 Apply ProtoAcc BitPack optimization
+$(PB_OPT_MLIR_PROTOACC): $(PB_MLIR_PROTOACC)
+	@echo " ------------- 4. Run MLIR optimization passes ------------- "
+	$(MLIR_OPT) $< \
+		--canonicalize --cse --inline --symbol-dce \
+		--convert-arith-to-llvm \
+		--convert-vector-to-llvm \
+		--convert-math-to-llvm \
+		--convert-func-to-llvm \
+		-o $@
 
 # 5. ProtoAcc export MLIR → LLVM IR
 $(PB_FINAL_LL_PROTOACC): $(PB_MLIR_PROTOACC)
